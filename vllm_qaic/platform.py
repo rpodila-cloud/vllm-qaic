@@ -394,6 +394,7 @@ class QaicPlatform(Platform):
 
         model_config = vllm_config.model_config
         scheduler_config = vllm_config.scheduler_config
+        requested_max_num_batched_tokens = scheduler_config.max_num_batched_tokens
         cache_config = vllm_config.cache_config
 
         # Native BF16 is an AI200-only contract; never silently downcast it.
@@ -617,6 +618,11 @@ class QaicPlatform(Platform):
                     f" must be less than or equal to prefill_pipeline_parallel_size"
                     f" ({stages}) when prefill streaming is enabled"
                 )
+                if stages > 1:
+                    # QPC chunking must not reduce the total scheduler budget.
+                    scheduler_config.max_num_batched_tokens = (
+                        requested_max_num_batched_tokens
+                    )
 
         if not cls.is_aot and model_config.hf_config.model_type == "gemma4":
             # Load the existing Gemma4 encoder memory guard in eager mode too.

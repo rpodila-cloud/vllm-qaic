@@ -18,6 +18,7 @@ import torch
 import vllm_qaic.model_loader.qaic as qaic_model_loader
 from vllm_qaic.distributed.kv_transfer import kv_connector as kv_connector_module
 from vllm_qaic.model_loader.qaic import QaicCausalLM
+from vllm_qaic.platform import QaicPlatform
 from vllm_qaic.worker.model_runner import QaicModelRunnerAoT
 
 
@@ -524,6 +525,50 @@ def test_disagg_launcher_forwards_nested_qaic_config():
         "device_group": [9],
         "override_qaic_config": override,
     }
+
+
+def test_disagg_pipeline_prefill_preserves_scheduler_budget(monkeypatch):
+    from vllm.config import CompilationMode
+
+    scheduler_config = SimpleNamespace(
+        async_scheduling=False,
+        enable_chunked_prefill=True,
+        max_num_batched_tokens=65536,
+        max_num_scheduled_tokens=65536,
+        max_num_seqs=1,
+    )
+    config = SimpleNamespace(
+        additional_config={
+            "override_qaic_config": {
+                "prefill_seq_len": 1024,
+                "stages": 16,
+            }
+        },
+        cache_config=None,
+        compilation_config=SimpleNamespace(mode=CompilationMode.NONE),
+        device_config=SimpleNamespace(device=None, device_type="qaic"),
+        kv_transfer_config=SimpleNamespace(kv_role="kv_producer"),
+        lora_config=None,
+        model_config=SimpleNamespace(
+            enforce_eager=False,
+            hf_config=SimpleNamespace(model_type="minimax_m3"),
+            is_multimodal_model=False,
+            max_model_len=65536,
+            runner_type="generate",
+        ),
+        parallel_config=SimpleNamespace(worker_cls="qaic", world_size=1),
+        scheduler_config=scheduler_config,
+        speculative_config=None,
+    )
+
+    monkeypatch.setattr(QaicPlatform, "is_aot", True)
+    with patch(
+        "vllm_qaic.utils.qaic_utils._clean_config",
+        return_value=config.additional_config["override_qaic_config"],
+    ):
+        QaicPlatform.check_and_update_config(config)
+
+    assert scheduler_config.max_num_batched_tokens == 65536
 
 
 def test_same_device_draft_and_target_split_nsp_cores():
